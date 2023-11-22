@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Airport Transfer Search</title>
+  <style>
+    #map {
+      height: 400px;
+      width: 100%;
+    }
+	#result {
+		height: 5em;
+  }
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+  </head>
+<body>
+  <h1>Airport Transfer Search</h1>
+  <p>Click an address on the map, choose the target airport, and select the date and time of departure.</p>
+  <div id="map"></div>
+  <div id="result"></div>
+  <div id="airportselect">
+    <label for="airport">Select an airport:</label>
+    <select name="airport" id="airport">
+        <option value="CDG">Charles de Gaulle</option>
+        <option value="ORY">Orly</option>
+        <option value="BVA">Beauvais</option>
+    </select>
+  </div>
+  <div id="datepicker">
+    <label for="datetime">Select a date and time:</label>
+    <input type="datetime-local" id="datetime" name="datetime">
+  </div>
+
+  <button id="searchButton" disabled="true">Search</button>
+
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+  <script>
+
+  // variables
+  var marker, searchMarker;
+  var streetAddress, houseNumber, city, zipCode, countryCode, latitude, longitude;
+  var airport;
+  var datetime;
+
+  // Initialize the map
+  var map = L.map('map').setView([48.8566, 2.3522], 12);
+
+  // Create a tile layer using OpenStreetMap
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
+    maxZoom: 18,
+  }).addTo(map);
+  L.Control.geocoder().addTo(map);
+
+  // Pre-set the datetime picker with the current time plus one day, adjusted to the current time zone
+    var startDateTime = new Date();
+    startDateTime.setTime(startDateTime.getTime() + 24*60*60*1000 - startDateTime.getTimezoneOffset()*60*1000);
+    document.getElementById("datetime").value = startDateTime.toISOString().slice(0, 16);
+
+// Create a geocoder control and add it to the map
+const geocoderControl = L.Control.geocoder({
+  defaultMarkGeocode: false, // disable the default marker creation
+  collapsed: false, // expand the search control by default
+  position: 'topright' // adjust the position as needed
+})
+  .on('markgeocode', function (e) {
+    // This event is triggered when a geocoding result is selected
+
+    // Get the selected location
+    const result = e.geocode;
+
+    // Create a new marker at the selected location
+    if (marker) {
+      map.removeLayer(marker);
+    }
+    marker = L.marker(result.center).addTo(map);
+
+    // Move the map view to the selected location
+    map.setView(result.center);
+    readMarkerData();
+  });
+
+  // Add the geocoder control to the map
+  geocoderControl.addTo(map);
+
+  // Add a click event listener to set the marker
+  map.on('click', function(event) {
+    placeMarker(event.latlng);
+  });
+
+  // Place a marker on the map
+  function placeMarker(location) {
+    // Remove existing marker, if any
+    if (marker) {
+      map.removeLayer(marker);
+    }
+
+    // Create a new marker
+    marker = L.marker(location).addTo(map);
+    readMarkerData();
+  }
+
+  // Retrieve location data from marker
+  function readMarkerData() {
+    if (marker) {
+      // Retrieve the position of the marker
+      var position = marker.getLatLng();
+
+      // Retrieve the address details using reverse geocoding
+      var geocoder = new L.Control.Geocoder.Nominatim();
+      geocoder.reverse(position, map.options.crs.scale(18), function (results) {
+        if (results.length > 0) {
+          console.log(results[0].properties.address)
+          // Retrieve the address components
+          var address = results[0].properties.address;
+          // Extract the required data
+          streetAddress = address.road || '';
+          houseNumber = address.house_number || '';
+          // Nominatim returns either a city, a town or a village name for a given location.
+          city = (address.city || '') + (address.town || '') + (address.village || '');
+          zipCode = address.postcode || '';
+          countryCode = address.country_code.toUpperCase() || '';
+          latitude = position.lat.toFixed(6);
+          longitude = position.lng.toFixed(6);
+
+          // Construct the resulting data string
+          var result =
+            'Street Address: ' + streetAddress + ' ' + houseNumber +
+            '<br/>' +
+            'City: ' + city +
+            '<br/>' +
+            'Zip Code: ' + zipCode +
+            '<br/>' +
+            'Country Code: ' + countryCode;
+
+          // Set the resulting data in the text field
+          document.getElementById('result').innerHTML = result;
+          // Enable the Search button
+          document.getElementById('searchButton').disabled = false;
+
+        } else {
+          document.getElementById('result').textContent = 'No address found.';
+        }
+      });
+    } else {
+      document.getElementById('result').textContent = 'Please set a marker on the map.';
+    }
+  }
+
+  // Retrieve the airport code from the dropdown box
+  function getAirport() {
+    return document.getElementById('airport').value;
+  }
+
+  // Retrieve the picked date and time, adjust the time to UTC
+  // Homework assignment: Ensure that the selected date and time are in the future
+  function getDateTime() {
+    var datetime = new Date(document.getElementById('datetime').value)
+    var tzoffset = datetime.getTimezoneOffset() * 60000;
+    datetime.setTime(datetime.getTime() - tzoffset);
+    return datetime.toISOString().slice(0, 19);
+  }
+
+  // Hhandle button click and send data to the server
+  function sendDataToServer() {
+    document.getElementById('searchButton').setAttribute('disabled', true);
+    // Construct the query string with the address data
+    var queryString =
+      '/search?streetAddress=' +
+      encodeURIComponent(streetAddress) +
+      '&houseNumber=' +
+      encodeURIComponent(houseNumber) +
+      '&city=' +
+      encodeURIComponent(city) +
+      '&zipCode=' +
+      encodeURIComponent(zipCode) +
+      '&countryCode=' +
+      encodeURIComponent(countryCode) +
+      '&latitude=' +
+      encodeURIComponent(latitude) +
+      '&longitude=' +
+      encodeURIComponent(longitude) +
+      '&endLocationCode=' +
+      encodeURIComponent(getAirport()) +
+      '&startDateTime=' +
+      encodeURIComponent(getDateTime());
+
+  // Redirect the browser to the response URL
+  window.location.href = queryString;
+
+  }
+
+  // Add event listener to the search button
+  document.getElementById('searchButton').addEventListener('click', sendDataToServer);
+
+    </script>
+</body>
+</html>
